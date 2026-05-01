@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1e293b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PanelTrack">
+<title>PanelTrack SA</title>
+
+<!-- PWA Manifest inline -->
+<script>
+const manifestData = {
+  name: "PanelTrack SA",
+  short_name: "PanelTrack",
+  description: "Bodyshop vehicle tracking & management",
+  start_url: "./",
+  display: "standalone",
+  background_color: "#0f172a",
+  theme_color: "#1e293b",
+  orientation: "portrait",
+  icons: [
+    { src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='32' fill='%231e293b'/%3E%3Ctext x='96' y='130' font-size='100' text-anchor='middle'%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E", sizes: "192x192", type: "image/svg+xml" },
+    { src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='80' fill='%231e293b'/%3E%3Ctext x='256' y='360' font-size='280' text-anchor='middle'%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E", sizes: "512x512", type: "image/svg+xml" }
+  ]
+};
+const blob = new Blob([JSON.stringify(manifestData)], {type:'application/json'});
+const manifestURL = URL.createObjectURL(blob);
+document.write('<link rel="manifest" href="' + manifestURL + '">');
+</script>
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; background: #0f172a; }
+  #app { height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #e2e8f0; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select, textarea { font-family: inherit; }
+  select option { background: #1e293b; color: #e2e8f0; }
+
+  /* Install banner */
+  #install-banner {
+    display: none; position: fixed; bottom: 80px; left: 12px; right: 12px;
+    background: #0ea5e9; color: #fff; border-radius: 14px; padding: 14px 16px;
+    z-index: 500; box-shadow: 0 8px 32px #0003;
+    flex-direction: column; gap: 10px;
+  }
+  #install-banner.show { display: flex; }
+  #install-banner .ib-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  #install-banner .ib-title { font-weight: 800; font-size: 15px; }
+  #install-banner .ib-sub { font-size: 12px; opacity: .85; margin-top: 2px; }
+  #install-banner .ib-btns { display: flex; gap: 8px; }
+  #install-banner .ib-install { background: #fff; color: #0ea5e9; border: none; border-radius: 8px; padding: 8px 18px; font-weight: 800; font-size: 14px; }
+  #install-banner .ib-dismiss { background: transparent; color: #fff; border: 1px solid #ffffff66; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+
+  /* Offline badge */
+  #offline-badge {
+    display: none; position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+    background: #ef4444; color: #fff; border-radius: 20px; padding: 4px 14px;
+    font-size: 11px; font-weight: 700; z-index: 600;
+  }
+  #offline-badge.show { display: block; }
+</style>
+</head>
+<body>
+
+<div id="offline-badge">📵 OFFLINE</div>
+<div id="install-banner">
+  <div class="ib-row">
+    <div>
+      <div class="ib-title">🏗️ Install PanelTrack SA</div>
+      <div class="ib-sub">Add to home screen — works offline</div>
+    </div>
+  </div>
+  <div class="ib-btns">
+    <button class="ib-install" id="ib-install-btn">Install App</button>
+    <button class="ib-dismiss" id="ib-dismiss-btn">Not now</button>
+  </div>
+</div>
+
+<div id="app"></div>
+
+<!-- React + Babel from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const STAGES = [
+  { id:"booked_in",    label:"Booked In",     color:"#64748b", icon:"📋" },
+  { id:"assessment",   label:"Assessment",     color:"#0ea5e9", icon:"🔍" },
+  { id:"strip",        label:"Strip & Assess", color:"#f59e0b", icon:"🔧" },
+  { id:"panel_beat",   label:"Panel Beating",  color:"#ef4444", icon:"🔨" },
+  { id:"bumper_prep",  label:"Bumper Prep",    color:"#f97316", icon:"🛡️" },
+  { id:"paint_prep",   label:"Paint Prep",     color:"#a855f7", icon:"🎨" },
+  { id:"spray_paint",  label:"Spray Paint",    color:"#ec4899", icon:"💨" },
+  { id:"assembly",     label:"Assembly",       color:"#10b981", icon:"⚙️" },
+  { id:"quality_check",label:"Quality Check",  color:"#06b6d4", icon:"✅" },
+  { id:"ready",        label:"Ready / Done",   color:"#22c55e", icon:"🏁" },
+];
+
+const PHOTO_ANGLES = [
+  { id:"front",    label:"Front",           icon:"⬆️" },
+  { id:"rear",     label:"Rear",            icon:"⬇️" },
+  { id:"left",     label:"Left Side",       icon:"⬅️" },
+  { id:"right",    label:"Right Side",      icon:"➡️" },
+  { id:"damage1",  label:"Damage Close-up", icon:"🔍" },
+  { id:"interior", label:"Interior",        icon:"🚪" },
+  { id:"other",    label:"Other",           icon:"📷" },
+];
+
+const STAFF_ROLES = ["Receptionist","Panel Beater","Spray Painter","Assembler","Bumper Prep","Paint Prep","Manager"];
+
+const DEMO_VEHICLES = [
+  {
+    id:"v1", plate:"CA 123-456", owner:"Sipho Dlamini", phone:"082 555 1234",
+    make:"Toyota", model:"Corolla", color:"Silver", year:"2021",
+    insurance:"Outsurance", claimNo:"OC-2024-88231", stage:"panel_beat",
+    bookedIn:"2026-04-28", estimatedDone:"2026-05-05", photos:[],
+    notes:"Left rear quarter panel damage, bumper crack",
+    sessions:[
+      {stage:"booked_in", start:"2026-04-28T08:00",end:"2026-04-28T08:30",staff:"Receptionist",note:"Booked in"},
+      {stage:"assessment",start:"2026-04-28T09:00",end:"2026-04-28T10:00",staff:"Manager",note:"Full assessment"},
+      {stage:"strip",     start:"2026-04-29T07:30",end:"2026-04-29T09:00",staff:"Panel Beater",note:"Stripped panels"},
+      {stage:"panel_beat",start:"2026-04-30T07:30",end:null,staff:"Panel Beater",note:"In progress"},
+    ],
+  },
+  {
+    id:"v2", plate:"GP 78-BK GP", owner:"Thandi Nkosi", phone:"073 888 9900",
+    make:"VW", model:"Polo", color:"White", year:"2020",
+    insurance:"Discovery", claimNo:"DV-2024-11034", stage:"paint_prep",
+    bookedIn:"2026-04-25", estimatedDone:"2026-05-02", photos:[],
+    notes:"Front bonnet, A-pillar, door damage",
+    sessions:[
+      {stage:"booked_in",  start:"2026-04-25T08:00",end:"2026-04-25T08:45",staff:"Receptionist",note:"Booked in"},
+      {stage:"assessment", start:"2026-04-25T09:30",end:"2026-04-25T11:00",staff:"Manager",note:"Assessed"},
+      {stage:"strip",      start:"2026-04-26T07:30",end:"2026-04-26T10:00",staff:"Panel Beater",note:"Done"},
+      {stage:"panel_beat", start:"2026-04-27T07:30",end:"2026-04-28T15:00",staff:"Panel Beater",note:"Completed"},
+      {stage:"bumper_prep",start:"2026-04-29T07:30",end:"2026-04-29T12:00",staff:"Bumper Prep",note:"Done"},
+      {stage:"paint_prep", start:"2026-04-30T07:30",end:null,staff:"Paint Prep",note:"In progress"},
+    ],
+  },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function uid()   { return "v"+Date.now()+Math.floor(Math.random()*9999); }
+function today() { return new Date().toISOString().slice(0,10); }
+function nowISO(){ return new Date().toISOString().slice(0,16); }
+function stageOf(id){ return STAGES.find(s=>s.id===id)||STAGES[0]; }
+function fmtDur(start,end){
+  const m=Math.round((new Date(end||undefined)-new Date(start))/60000);
+  if(isNaN(m)||m<0) return "0m";
+  if(m<60) return m+"m";
+  return Math.floor(m/60)+"h "+m%60+"m";
+}
+
+// localStorage persistence
+const LS_KEY = "paneltrack_v2";
+function loadData(){
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if(raw) return JSON.parse(raw);
+  } catch(e){}
+  return null;
+}
+function saveData(vehicles){
+  try { localStorage.setItem(LS_KEY, JSON.stringify(vehicles)); } catch(e){}
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const S = {
+  app:{background:"#0f172a",minHeight:"100vh",maxWidth:480,margin:"0 auto",paddingBottom:80,position:"relative"},
+  header:{background:"#1e293b",borderBottom:"1px solid #334155",padding:"14px 16px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:100},
+  headerLeft:{display:"flex",alignItems:"center",gap:10},
+  headerTitle:{fontWeight:800,fontSize:18,letterSpacing:-0.5,color:"#f8fafc"},
+  headerSub:{fontSize:11,color:"#64748b",marginTop:1},
+  addBtn:{background:"#0ea5e9",color:"#fff",border:"none",borderRadius:8,padding:"9px 15px",fontWeight:700,fontSize:13},
+  nav:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"#1e293b",borderTop:"1px solid #334155",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom)"},
+  navBtn:{flex:1,background:"transparent",border:"none",color:"#64748b",padding:"10px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:2},
+  navActive:{color:"#0ea5e9",borderTop:"2px solid #0ea5e9"},
+  main:{padding:"12px 14px"},
+  sl:{fontSize:10,fontWeight:700,letterSpacing:1.5,color:"#475569",marginBottom:8,marginTop:14},
+  pipeline:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:4},
+  pipeCard:{background:"#1e293b",border:"1px solid",borderRadius:10,padding:"10px 6px",display:"flex",flexDirection:"column",alignItems:"center",gap:4},
+  card:{background:"#1e293b",border:"1px solid #334155",borderRadius:12,padding:"14px",marginBottom:10},
+  plateMed:{fontSize:17,fontWeight:900,letterSpacing:2,color:"#f8fafc",fontFamily:"'Courier New',monospace"},
+  plateLg:{display:"inline-block",background:"#f8fafc",color:"#0f172a",fontFamily:"'Courier New',monospace",fontWeight:900,fontSize:21,letterSpacing:3,padding:"6px 18px",borderRadius:6},
+  badge:{fontSize:11,fontWeight:700,padding:"4px 8px",borderRadius:6,border:"1px solid",whiteSpace:"nowrap"},
+  liveChip:{background:"#ef444422",borderRadius:6,padding:"3px 8px",fontSize:11,color:"#ef4444",marginTop:6,fontWeight:600,display:"inline-block"},
+  backBtn:{background:"#1e293b",border:"1px solid #334155",borderRadius:8,color:"#94a3b8",padding:"8px 14px",fontSize:16},
+  liveBanner:{background:"#ef444422",border:"1px solid #ef4444",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"},
+  stopBtn:{background:"#ef4444",color:"#fff",border:"none",borderRadius:7,padding:"8px 12px",fontWeight:800,fontSize:12},
+  tabs:{display:"flex",gap:4,marginBottom:14},
+  tab:{flex:1,background:"#1e293b",border:"1px solid #334155",borderRadius:8,color:"#64748b",padding:"9px 4px",fontSize:11,fontWeight:600},
+  tabActive:{background:"#0ea5e9",color:"#fff",borderColor:"#0ea5e9"},
+  staffRow:{display:"flex",alignItems:"center",gap:10,background:"#1e293b",borderRadius:8,padding:"8px 12px",marginBottom:10,border:"1px solid #334155"},
+  selInline:{flex:1,background:"#0f172a",border:"1px solid #334155",borderRadius:6,color:"#e2e8f0",padding:"6px 10px",fontSize:13},
+  curStage:{display:"flex",alignItems:"center",gap:14,border:"2px solid",borderRadius:12,padding:"12px 14px",marginBottom:14},
+  stageGrid:{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:14},
+  stageTile:{background:"#1e293b",border:"2px solid",borderRadius:12,padding:"16px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:4},
+  confOv:{position:"fixed",inset:0,background:"#000000bb",zIndex:300,display:"flex",alignItems:"flex-end"},
+  confSheet:{background:"#1e293b",borderRadius:"20px 20px 0 0",padding:"22px 16px 36px",width:"100%",maxWidth:480},
+  cancelBtn:{flex:1,background:"#334155",border:"none",borderRadius:9,color:"#94a3b8",padding:"13px",fontWeight:700,fontSize:14},
+  confirmBtn:{flex:2,border:"none",borderRadius:9,color:"#fff",padding:"13px",fontWeight:800,fontSize:15},
+  angleGrid:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12},
+  angleBtn:{background:"#1e293b",border:"2px dashed #334155",borderRadius:12,padding:"12px 6px",display:"flex",flexDirection:"column",alignItems:"center",minHeight:84,width:"100%"},
+  angleDone:{border:"2px solid #22c55e",background:"#22c55e11"},
+  angleThumb:{width:"100%",aspectRatio:"4/3",objectFit:"cover",borderRadius:6},
+  photoAddBtn:{width:"100%",background:"#1e293b",border:"2px dashed #334155",borderRadius:10,color:"#94a3b8",padding:"14px",fontSize:13,fontWeight:600,marginBottom:10},
+  photoStrip:{display:"flex",gap:8,overflowX:"auto",paddingBottom:8},
+  stripImg:{width:80,height:80,objectFit:"cover",borderRadius:8,flexShrink:0,border:"1px solid #334155"},
+  infoRow:{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid #1e293b",padding:"10px 0"},
+  tlItem:{background:"#1e293b",borderLeft:"3px solid",borderRadius:"0 10px 10px 0",padding:"10px 12px",marginBottom:8},
+  statRow:{display:"flex",justifyContent:"space-between",background:"#1e293b",borderRadius:8,padding:"10px 14px",marginBottom:6,fontSize:13},
+  overlay:{position:"fixed",inset:0,background:"#000000cc",display:"flex",alignItems:"flex-end",zIndex:200},
+  modal:{background:"#1e293b",borderRadius:"20px 20px 0 0",padding:"20px 16px",width:"100%",maxWidth:480,maxHeight:"92vh",overflowY:"auto"},
+  stepRow:{display:"flex",alignItems:"center",gap:8,marginBottom:16},
+  stepDot:{width:28,height:28,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,color:"#fff",flexShrink:0},
+  stepLine:{height:2,width:32,background:"#334155"},
+  closeBtn:{background:"#334155",border:"none",borderRadius:"50%",color:"#94a3b8",width:32,height:32,fontSize:15},
+  label:{display:"block",fontSize:11,color:"#64748b",marginBottom:4,marginTop:10,fontWeight:600},
+  input:{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,color:"#e2e8f0",padding:"10px 12px",fontSize:14,boxSizing:"border-box"},
+  select:{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,color:"#e2e8f0",padding:"10px 12px",fontSize:14,boxSizing:"border-box"},
+  textarea:{width:"100%",background:"#0f172a",border:"1px solid #334155",borderRadius:8,color:"#e2e8f0",padding:"10px 12px",fontSize:14,boxSizing:"border-box",resize:"vertical"},
+  nextBtn:{width:"100%",background:"#0ea5e9",color:"#fff",border:"none",borderRadius:9,padding:"13px",fontWeight:800,fontSize:15,marginTop:14},
+  doneBtn:{width:"100%",background:"#22c55e",color:"#fff",border:"none",borderRadius:9,padding:"14px",fontWeight:800,fontSize:15,marginTop:8},
+  saveBtn:{width:"100%",background:"#0ea5e9",color:"#fff",border:"none",borderRadius:9,padding:"12px",fontWeight:700,fontSize:14,marginTop:10},
+  chip:{background:"#1e293b",border:"1px solid #334155",borderRadius:20,color:"#94a3b8",padding:"5px 10px",fontSize:11},
+  chipActive:{background:"#0ea5e9",color:"#fff",borderColor:"#0ea5e9"},
+  empty:{color:"#475569",textAlign:"center",padding:"24px 0",fontSize:13},
+  toast:{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",color:"#fff",fontWeight:700,padding:"10px 20px",borderRadius:24,fontSize:13,zIndex:400,whiteSpace:"nowrap",boxShadow:"0 4px 20px #0006"},
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ROOT APP
+// ═══════════════════════════════════════════════════════════════════════════════
+function App(){
+  const [vehicles,setVehicles] = useState(()=>{
+    const saved = loadData();
+    return saved || DEMO_VEHICLES;
+  });
+  const [view,setView]               = useState("dashboard");
+  const [selectedId,setSelectedId]   = useState(null);
+  const [bookInStep,setBookInStep]   = useState(null);
+  const [newVehicle,setNewVehicle]   = useState(null);
+  const [filterStage,setFilterStage] = useState("all");
+  const [toast,setToast]             = useState(null);
+
+  // Auto-save whenever vehicles change
+  useEffect(()=>{ saveData(vehicles); }, [vehicles]);
+
+  function showToast(msg,type="ok"){
+    setToast({msg,type});
+    setTimeout(()=>setToast(null),2800);
+  }
+
+  function updateVehicle(updated){
+    setVehicles(prev=>prev.map(v=>v.id===updated.id?updated:v));
+  }
+
+  function moveToStage(vehicleId,stageId,staff,note=""){
+    setVehicles(prev=>prev.map(v=>{
+      if(v.id!==vehicleId) return v;
+      const sessions=v.sessions.map(s=>s.end?s:{...s,end:nowISO()});
+      return{...v,stage:stageId,sessions:[...sessions,{stage:stageId,start:nowISO(),end:null,staff,note}]};
+    }));
+    showToast("Moved to "+stageOf(stageId).label+" ✓");
+  }
+
+  function closeSession(vehicleId){
+    setVehicles(prev=>prev.map(v=>
+      v.id!==vehicleId?v:{...v,sessions:v.sessions.map(s=>s.end?s:{...s,end:nowISO()})}
+    ));
+    showToast("Session closed ✓");
+  }
+
+  function finishBookIn(vehicle){
+    setVehicles(prev=>[...prev,vehicle]);
+    setNewVehicle(null);
+    setBookInStep(null);
+    showToast(vehicle.plate+" booked in ✓");
+  }
+
+  const selected=vehicles.find(v=>v.id===selectedId);
+  const stageCount={};
+  STAGES.forEach(s=>{stageCount[s.id]=vehicles.filter(v=>v.stage===s.id).length;});
+  const filtered=filterStage==="all"?vehicles:vehicles.filter(v=>v.stage===filterStage);
+
+  function goDetail(id){ setSelectedId(id); setView("detail"); }
+
+  return(
+    <div style={S.app}>
+      {/* Header */}
+      <header style={S.header}>
+        <div style={S.headerLeft}>
+          <span style={{fontSize:24}}>🏗️</span>
+          <div>
+            <div style={S.headerTitle}>PanelTrack SA</div>
+            <div style={S.headerSub}>{vehicles.filter(v=>v.stage!=="ready").length} active · {vehicles.filter(v=>v.stage==="ready").length} done</div>
+          </div>
+        </div>
+        <button style={S.addBtn} onClick={()=>setBookInStep("form")}>+ Book In</button>
+      </header>
+
+      {/* Main content */}
+      <main style={S.main}>
+        {!selectedId && view==="dashboard" && <Dashboard vehicles={vehicles} stageCount={stageCount} onSelect={goDetail}/>}
+        {!selectedId && view==="list"      && <VehicleList vehicles={filtered} filterStage={filterStage} setFilterStage={setFilterStage} onSelect={goDetail}/>}
+        {!selectedId && view==="daily"     && <DailyView vehicles={vehicles} onSelect={goDetail}/>}
+        {selectedId && selected && (
+          <VehicleDetail
+            vehicle={selected}
+            onBack={()=>setSelectedId(null)}
+            onMove={(sid,staff,note)=>moveToStage(selectedId,sid,staff,note)}
+            onCloseSession={()=>closeSession(selectedId)}
+            onUpdate={updateVehicle}
+            showToast={showToast}
+          />
+        )}
+      </main>
+
+      {/* Bottom nav */}
+      <nav style={S.nav}>
+        {[["dashboard","📊","Floor"],["list","🚗","Vehicles"],["daily","📅","Daily"]].map(([v,ic,lb])=>(
+          <button key={v} style={{...S.navBtn,...(view===v&&!selectedId?S.navActive:{})}}
+            onClick={()=>{setView(v);setSelectedId(null);}}>
+            <span style={{fontSize:22}}>{ic}</span>
+            <span style={{fontSize:10}}>{lb}</span>
+          </button>
+        ))}
+      </nav>
+
+      {/* Book-in modals */}
+      {bookInStep==="form" && <BookInForm onClose={()=>setBookInStep(null)} onNext={v=>{setNewVehicle(v);setBookInStep("photos");}}/>}
+      {bookInStep==="photos" && newVehicle && <BookInPhotos vehicle={newVehicle} onChange={setNewVehicle} onDone={()=>finishBookIn(newVehicle)} onSkip={()=>finishBookIn(newVehicle)}/>}
+
+      {/* Toast */}
+      {toast && <div style={{...S.toast,background:toast.type==="ok"?"#22c55e":"#ef4444"}}>{toast.msg}</div>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOOK-IN STEP 1
+// ═══════════════════════════════════════════════════════════════════════════════
+function BookInForm({onClose,onNext}){
+  const [f,setF]=useState({plate:"",owner:"",phone:"",make:"",model:"",color:"",year:"",insurance:"",claimNo:"",estimatedDone:"",notes:""});
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  function next(){
+    if(!f.plate.trim()||!f.owner.trim()){alert("Number plate and owner name are required");return;}
+    onNext({id:uid(),...f,stage:"booked_in",bookedIn:today(),photos:[],
+      sessions:[{stage:"booked_in",start:nowISO(),end:nowISO(),staff:"Receptionist",note:"Booked in"}]});
+  }
+  return(
+    <div style={S.overlay}>
+      <div style={S.modal}>
+        <div style={S.stepRow}>
+          <div style={{...S.stepDot,background:"#0ea5e9"}}>1</div>
+          <div style={S.stepLine}/>
+          <div style={{...S.stepDot,background:"#334155"}}>2</div>
+          <div style={{flex:1}}/>
+          <button style={S.closeBtn} onClick={onClose}>✕</button>
+        </div>
+        <div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:2}}>📋 Vehicle Details</div>
+        <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Step 1 of 2 — photos come next</div>
+        {[["plate","Number Plate *","CA 123-456","text"],["owner","Owner Name *","Full name","text"],
+          ["phone","Phone","082 xxx xxxx","text"],["make","Make","Toyota","text"],
+          ["model","Model","Corolla","text"],["color","Colour","Silver","text"],
+          ["year","Year","2021","text"],["insurance","Insurance Co.","Outsurance","text"],
+          ["claimNo","Claim Number","","text"],["estimatedDone","Est. Completion","","date"],
+        ].map(([k,l,p,t])=>(
+          <div key={k}>
+            <label style={S.label}>{l}</label>
+            <input style={S.input} type={t} placeholder={p} value={f[k]} onChange={e=>set(k,e.target.value)}/>
+          </div>
+        ))}
+        <label style={S.label}>Damage Notes</label>
+        <textarea style={S.textarea} rows={3} value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Describe damage areas..."/>
+        <button style={S.nextBtn} onClick={next}>Next: Take Photos →</button>
+        <div style={{height:16}}/>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOOK-IN STEP 2 — PHOTOS
+// ═══════════════════════════════════════════════════════════════════════════════
+function BookInPhotos({vehicle,onChange,onDone,onSkip}){
+  const fileRef=useRef();
+  const [activeAngle,setActiveAngle]=useState(null);
+  const byAngle={};
+  vehicle.photos.forEach(p=>{byAngle[p.angleId]=p;});
+
+  function shoot(angleId){setActiveAngle(angleId);fileRef.current.click();}
+  function handleFile(e){
+    const file=e.target.files[0];
+    if(!file||!activeAngle) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const photo={id:uid(),src:ev.target.result,angleId:activeAngle,
+        label:PHOTO_ANGLES.find(a=>a.id===activeAngle)?.label||activeAngle,date:today()};
+      onChange({...vehicle,photos:[...vehicle.photos.filter(p=>p.angleId!==activeAngle),photo]});
+    };
+    reader.readAsDataURL(file);
+    e.target.value="";
+  }
+  const taken=vehicle.photos.length;
+  return(
+    <div style={S.overlay}>
+      <div style={{...S.modal,paddingBottom:0}}>
+        <div style={S.stepRow}>
+          <div style={{...S.stepDot,background:"#22c55e"}}>✓</div>
+          <div style={{...S.stepLine,background:"#0ea5e9"}}/>
+          <div style={{...S.stepDot,background:"#0ea5e9"}}>2</div>
+          <div style={{flex:1}}/>
+          <button style={{...S.closeBtn,width:"auto",borderRadius:8,padding:"4px 14px",fontSize:12,color:"#64748b"}} onClick={onSkip}>Skip →</button>
+        </div>
+        <div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:2}}>📷 Vehicle Photos</div>
+        <div style={{fontSize:12,color:"#64748b",marginBottom:10}}>{taken} photo{taken!==1?"s":""} taken — tap each angle to shoot</div>
+        <div style={{textAlign:"center",marginBottom:14}}>
+          <div style={S.plateLg}>{vehicle.plate}</div>
+          <div style={{fontSize:12,color:"#94a3b8",marginTop:6}}>{vehicle.year} {vehicle.make} {vehicle.model} · {vehicle.color}</div>
+        </div>
+        <div style={S.angleGrid}>
+          {PHOTO_ANGLES.map(a=>{
+            const done=!!byAngle[a.id];
+            return(
+              <button key={a.id} style={{...S.angleBtn,...(done?S.angleDone:{})}} onClick={()=>shoot(a.id)}>
+                {done?<img src={byAngle[a.id].src} alt={a.label} style={S.angleThumb}/>:<span style={{fontSize:26}}>{a.icon}</span>}
+                <div style={{fontSize:10,color:done?"#22c55e":"#94a3b8",fontWeight:600,marginTop:4,textAlign:"center",lineHeight:1.2}}>
+                  {done?"✓ ":""}{a.label}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleFile}/>
+        <div style={{padding:"0 0 24px"}}>
+          <button style={S.doneBtn} onClick={onDone}>✓ Finish Book-In {taken>0?"("+taken+" photos)":""}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VEHICLE DETAIL
+// ═══════════════════════════════════════════════════════════════════════════════
+function VehicleDetail({vehicle:v,onBack,onMove,onCloseSession,onUpdate,showToast}){
+  const [tab,setTab]=useState("move");
+  const openSession=v.sessions.find(s=>!s.end);
+  const st=stageOf(v.stage);
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+        <button style={S.backBtn} onClick={onBack}>←</button>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={S.plateMed}>{v.plate}</div>
+          <div style={{fontSize:11,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.make} {v.model} · {v.owner}</div>
+        </div>
+        <div style={{...S.badge,background:st.color+"22",color:st.color,borderColor:st.color,flexShrink:0}}>
+          {st.icon} {st.label}
+        </div>
+      </div>
+      {openSession&&(
+        <div style={S.liveBanner}>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"#ef4444"}}>🔴 LIVE SESSION</div>
+            <div style={{fontSize:13,color:"#fca5a5"}}>{stageOf(openSession.stage).label} · {openSession.staff} · {fmtDur(openSession.start,null)}</div>
+          </div>
+          <button style={S.stopBtn} onClick={onCloseSession}>STOP ■</button>
+        </div>
+      )}
+      <div style={S.tabs}>
+        {[["move","🚦 Move"],["photos","📷 Photos"],["info","ℹ️ Info"],["timeline","⏱️ Log"]].map(([t,l])=>(
+          <button key={t} style={{...S.tab,...(tab===t?S.tabActive:{})}} onClick={()=>setTab(t)}>{l}</button>
+        ))}
+      </div>
+      {tab==="move"     && <MoveTab vehicle={v} onMove={onMove}/>}
+      {tab==="photos"   && <PhotosTab vehicle={v} onUpdate={onUpdate} showToast={showToast}/>}
+      {tab==="info"     && <InfoTab vehicle={v} onUpdate={onUpdate} showToast={showToast}/>}
+      {tab==="timeline" && <TimelineTab sessions={v.sessions}/>}
+    </div>
+  );
+}
+
+// ─── Move Tab ─────────────────────────────────────────────────────────────────
+function MoveTab({vehicle:v,onMove}){
+  const [staff,setStaff]=useState(STAFF_ROLES[0]);
+  const [note,setNote]=useState("");
+  const [confirm,setConfirm]=useState(null);
+  const currentIdx=STAGES.findIndex(s=>s.id===v.stage);
+  const openSession=v.sessions.find(s=>!s.end);
+
+  function doMove(){onMove(confirm,staff,note);setConfirm(null);setNote("");}
+
+  return(
+    <div>
+      <div style={S.staffRow}>
+        <span style={{fontSize:12,color:"#64748b",whiteSpace:"nowrap"}}>Who's moving it?</span>
+        <select style={S.selInline} value={staff} onChange={e=>setStaff(e.target.value)}>
+          {STAFF_ROLES.map(r=><option key={r}>{r}</option>)}
+        </select>
+      </div>
+      <div style={{...S.curStage,borderColor:stageOf(v.stage).color,background:stageOf(v.stage).color+"11"}}>
+        <span style={{fontSize:28}}>{stageOf(v.stage).icon}</span>
+        <div>
+          <div style={{fontSize:10,color:"#64748b",fontWeight:700,letterSpacing:1}}>CURRENTLY AT</div>
+          <div style={{fontSize:17,fontWeight:800,color:stageOf(v.stage).color}}>{stageOf(v.stage).label}</div>
+          {openSession&&<div style={{fontSize:11,color:"#ef4444"}}>🔴 Running {fmtDur(openSession.start,null)}</div>}
+        </div>
+      </div>
+      <div style={S.sl}>TAP A STAGE TO MOVE</div>
+      <div style={S.stageGrid}>
+        {STAGES.map((s,i)=>{
+          const isCurrent=s.id===v.stage;
+          const isDone=i<currentIdx;
+          const isNext=i===currentIdx+1;
+          return(
+            <button key={s.id}
+              style={{...S.stageTile,
+                borderColor:isCurrent?s.color:isDone?"#2a3a50":isNext?s.color+"88":"#1e293b",
+                background:isCurrent?s.color+"22":isDone?"#1a2434":"#1e293b",
+                opacity:isDone?0.4:1,
+              }}
+              onClick={()=>{if(!isCurrent&&!isDone)setConfirm(s.id);}}>
+              <span style={{fontSize:26}}>{s.icon}</span>
+              <div style={{fontSize:10,fontWeight:isCurrent||isNext?700:400,
+                color:isCurrent?s.color:isNext?s.color+"dd":"#64748b",
+                lineHeight:1.2,textAlign:"center"}}>
+                {s.label}
+              </div>
+              {isCurrent&&<div style={{fontSize:9,color:s.color,fontWeight:700}}>● HERE</div>}
+              {isNext&&<div style={{fontSize:9,color:s.color+"aa"}}>→ NEXT</div>}
+            </button>
+          );
+        })}
+      </div>
+      {confirm&&(
+        <div style={S.confOv} onClick={e=>{if(e.target===e.currentTarget)setConfirm(null);}}>
+          <div style={S.confSheet}>
+            <div style={{fontSize:16,fontWeight:800,color:"#f8fafc",marginBottom:4}}>{stageOf(confirm).icon} Move to {stageOf(confirm).label}?</div>
+            <div style={{fontSize:12,color:"#64748b",marginBottom:12}}>Open session will be closed automatically.</div>
+            <label style={S.label}>Staff / Role</label>
+            <select style={S.select} value={staff} onChange={e=>setStaff(e.target.value)}>
+              {STAFF_ROLES.map(r=><option key={r}>{r}</option>)}
+            </select>
+            <label style={S.label}>Note (optional)</label>
+            <input style={S.input} value={note} onChange={e=>setNote(e.target.value)} placeholder="e.g. Started sanding rear quarter"/>
+            <div style={{display:"flex",gap:10,marginTop:14}}>
+              <button style={S.cancelBtn} onClick={()=>setConfirm(null)}>Cancel</button>
+              <button style={{...S.confirmBtn,background:stageOf(confirm).color}} onClick={doMove}>Move ✓</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Photos Tab ───────────────────────────────────────────────────────────────
+function PhotosTab({vehicle:v,onUpdate,showToast}){
+  const fileRef=useRef();
+  const [activeAngle,setActiveAngle]=useState(null);
+  const [lightbox,setLightbox]=useState(null);
+
+  function shoot(angleId){setActiveAngle(angleId);fileRef.current.click();}
+  function handleFile(e){
+    const file=e.target.files[0];
+    if(!file) return;
+    const angle=activeAngle||"other";
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const photo={id:uid(),src:ev.target.result,angleId:angle,
+        label:PHOTO_ANGLES.find(a=>a.id===angle)?.label||"Photo",date:today()};
+      const updated=angle!=="other"?v.photos.filter(p=>p.angleId!==angle):v.photos;
+      onUpdate({...v,photos:[...updated,photo]});
+      showToast("Photo saved ✓");
+    };
+    reader.readAsDataURL(file);
+    e.target.value="";
+  }
+  const byAngle={};
+  v.photos.forEach(p=>{if(!byAngle[p.angleId])byAngle[p.angleId]=[];byAngle[p.angleId].push(p);});
+
+  return(
+    <div>
+      <div style={S.sl}>STANDARD ANGLES</div>
+      <div style={S.angleGrid}>
+        {PHOTO_ANGLES.map(a=>{
+          const photos=byAngle[a.id]||[];
+          const last=photos[photos.length-1];
+          return(
+            <button key={a.id} style={{...S.angleBtn,...(last?S.angleDone:{})}} onClick={()=>shoot(a.id)}>
+              {last?<img src={last.src} alt={a.label} style={S.angleThumb} onClick={e=>{e.stopPropagation();setLightbox(last.src);}}/>:<span style={{fontSize:26}}>{a.icon}</span>}
+              <div style={{fontSize:10,color:last?"#22c55e":"#94a3b8",fontWeight:600,marginTop:4,textAlign:"center",lineHeight:1.2}}>
+                {last?"✓ ":""}{a.label}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <button style={S.photoAddBtn} onClick={()=>{setActiveAngle("other");fileRef.current.click();}}>📷 Add Extra Photo</button>
+      {(byAngle["other"]||[]).length>0&&(
+        <>
+          <div style={{...S.sl,marginTop:12}}>EXTRA PHOTOS</div>
+          <div style={S.photoStrip}>
+            {(byAngle["other"]||[]).map(p=>(
+              <img key={p.id} src={p.src} alt="extra" style={{...S.stripImg,cursor:"pointer"}} onClick={()=>setLightbox(p.src)}/>
+            ))}
+          </div>
+        </>
+      )}
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleFile}/>
+      {lightbox&&(
+        <div style={{position:"fixed",inset:0,background:"#000000ee",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setLightbox(null)}>
+          <img src={lightbox} alt="full" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:8}}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Info Tab ─────────────────────────────────────────────────────────────────
+function InfoTab({vehicle:v,onUpdate,showToast}){
+  const [notes,setNotes]=useState(v.notes||"");
+  return(
+    <div>
+      {[["Number Plate",v.plate],["Owner",v.owner],["Phone",v.phone],
+        ["Vehicle",v.year+" "+v.make+" "+v.model+" ("+v.color+")"],
+        ["Insurance",v.insurance],["Claim No",v.claimNo],
+        ["Booked In",v.bookedIn],["Est. Done",v.estimatedDone],
+      ].map(([l,val])=>(
+        <div key={l} style={S.infoRow}>
+          <span style={{fontSize:11,color:"#64748b"}}>{l}</span>
+          <span style={{fontSize:14,fontWeight:600,color:"#e2e8f0"}}>{val||"—"}</span>
+        </div>
+      ))}
+      <div style={{...S.sl,marginTop:14}}>NOTES</div>
+      <textarea style={S.textarea} value={notes} onChange={e=>setNotes(e.target.value)} rows={4}/>
+      <button style={S.saveBtn} onClick={()=>{onUpdate({...v,notes});showToast("Saved ✓");}}>Save Notes</button>
+    </div>
+  );
+}
+
+// ─── Timeline Tab ─────────────────────────────────────────────────────────────
+function TimelineTab({sessions}){
+  return(
+    <div>
+      {sessions.length===0&&<div style={S.empty}>No sessions yet</div>}
+      {[...sessions].reverse().map((s,i)=>{
+        const st=stageOf(s.stage);
+        return(
+          <div key={i} style={{...S.tlItem,borderLeftColor:st.color}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontWeight:700,color:st.color}}>{st.icon} {st.label}</div>
+              <div style={{fontSize:11,color:"#64748b"}}>{s.end?fmtDur(s.start,s.end):<span style={{color:"#22c55e"}}>🔴 LIVE</span>}</div>
+            </div>
+            <div style={{fontSize:12,color:"#94a3b8"}}>{s.staff}</div>
+            {s.note&&<div style={{fontSize:12,color:"#cbd5e1",marginTop:2}}>{s.note}</div>}
+            <div style={{fontSize:10,color:"#475569",marginTop:2}}>
+              {s.start?.slice(0,16).replace("T"," ")}{s.end?" → "+s.end.slice(11,16):" → now"}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+function Dashboard({vehicles,stageCount,onSelect}){
+  const urgent=vehicles.filter(v=>{
+    if(!v.estimatedDone||v.stage==="ready") return false;
+    return(new Date(v.estimatedDone)-new Date())/86400000<=1;
+  });
+  return(
+    <div>
+      <div style={S.sl}>SHOP FLOOR</div>
+      <div style={S.pipeline}>
+        {STAGES.filter(s=>s.id!=="ready").map(st=>(
+          <div key={st.id} style={{...S.pipeCard,borderColor:st.color}}>
+            <div style={{fontSize:18}}>{st.icon}</div>
+            <div style={{fontSize:22,fontWeight:700,color:st.color}}>{stageCount[st.id]||0}</div>
+            <div style={{fontSize:9,color:"#94a3b8",textAlign:"center",lineHeight:1.2}}>{st.label}</div>
+          </div>
+        ))}
+      </div>
+      {urgent.length>0&&<>
+        <div style={{...S.sl,color:"#ef4444"}}>⚠️ DUE SOON / OVERDUE</div>
+        {urgent.map(v=><VehicleCard key={v.id} vehicle={v} onClick={()=>onSelect(v.id)} highlight/>)}
+      </>}
+      <div style={S.sl}>ACTIVE ({vehicles.filter(v=>v.stage!=="ready").length})</div>
+      {vehicles.filter(v=>v.stage!=="ready").length===0&&<div style={S.empty}>No active vehicles</div>}
+      {vehicles.filter(v=>v.stage!=="ready").map(v=><VehicleCard key={v.id} vehicle={v} onClick={()=>onSelect(v.id)}/>)}
+      {vehicles.filter(v=>v.stage==="ready").length>0&&<>
+        <div style={{...S.sl,color:"#22c55e"}}>✅ COMPLETED</div>
+        {vehicles.filter(v=>v.stage==="ready").map(v=><VehicleCard key={v.id} vehicle={v} onClick={()=>onSelect(v.id)}/>)}
+      </>}
+    </div>
+  );
+}
+
+function VehicleList({vehicles,filterStage,setFilterStage,onSelect}){
+  return(
+    <div>
+      <div style={S.sl}>FILTER BY STAGE</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        <button style={{...S.chip,...(filterStage==="all"?S.chipActive:{})}} onClick={()=>setFilterStage("all")}>All</button>
+        {STAGES.map(s=>(
+          <button key={s.id} style={{...S.chip,...(filterStage===s.id?{...S.chipActive,background:s.color,borderColor:s.color}:{})}} onClick={()=>setFilterStage(s.id)}>
+            {s.icon} {s.label}
+          </button>
+        ))}
+      </div>
+      {vehicles.length===0&&<div style={S.empty}>No vehicles in this stage</div>}
+      {vehicles.map(v=><VehicleCard key={v.id} vehicle={v} onClick={()=>onSelect(v.id)}/>)}
+    </div>
+  );
+}
+
+function DailyView({vehicles,onSelect}){
+  const todaySessions=vehicles.flatMap(v=>
+    v.sessions.filter(s=>s.start?.startsWith(today())).map(s=>({...s,vehicle:v}))
+  ).sort((a,b)=>a.start>b.start?-1:1);
+  const stageStats={};
+  STAGES.forEach(s=>{stageStats[s.id]=[];});
+  vehicles.forEach(v=>v.sessions.forEach(s=>{
+    if(s.end) stageStats[s.stage]?.push((new Date(s.end)-new Date(s.start))/3600000);
+  }));
+  return(
+    <div>
+      <div style={S.sl}>TODAY — {new Date().toLocaleDateString("en-ZA",{weekday:"long",day:"numeric",month:"long"})}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}}>
+        <StatCard label="Active Jobs" value={vehicles.filter(v=>v.stage!=="ready").length} color="#0ea5e9"/>
+        <StatCard label="Sessions Today" value={todaySessions.length} color="#a855f7"/>
+        <StatCard label="Completed" value={vehicles.filter(v=>v.stage==="ready").length} color="#22c55e"/>
+        <StatCard label="Live Now" value={vehicles.filter(v=>v.sessions.some(s=>!s.end)).length} color="#ef4444"/>
+      </div>
+      <div style={S.sl}>AVG TIME PER STAGE</div>
+      {STAGES.filter(s=>stageStats[s.id]?.length).map(s=>{
+        const avg=stageStats[s.id].reduce((a,b)=>a+b,0)/stageStats[s.id].length;
+        return(
+          <div key={s.id} style={S.statRow}>
+            <span style={{color:s.color}}>{s.icon} {s.label}</span>
+            <span style={{fontWeight:700}}>{Math.floor(avg)}h {Math.round((avg%1)*60)}m</span>
+          </div>
+        );
+      })}
+      <div style={S.sl}>TODAY'S SESSIONS</div>
+      {todaySessions.length===0&&<div style={S.empty}>No sessions logged today yet</div>}
+      {todaySessions.map((s,i)=>{
+        const st=stageOf(s.stage);
+        return(
+          <div key={i} style={{...S.tlItem,borderLeftColor:st.color,cursor:"pointer"}} onClick={()=>onSelect(s.vehicle.id)}>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:st.color,fontWeight:700}}>{st.icon} {st.label}</span>
+              <span style={{fontSize:11,color:"#64748b"}}>{s.end?fmtDur(s.start,s.end):<span style={{color:"#22c55e"}}>LIVE</span>}</span>
+            </div>
+            <div style={{fontSize:12,color:"#e2e8f0"}}>{s.vehicle.plate} · {s.vehicle.make} {s.vehicle.model}</div>
+            <div style={{fontSize:11,color:"#94a3b8"}}>{s.staff}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function VehicleCard({vehicle:v,onClick,highlight}){
+  const st=stageOf(v.stage);
+  const live=v.sessions.find(s=>!s.end);
+  return(
+    <div style={{...S.card,...(highlight?{borderColor:"#ef4444",borderWidth:2}:{})}} onClick={onClick}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div style={{minWidth:0,flex:1}}>
+          <div style={S.plateMed}>{v.plate}</div>
+          <div style={{fontSize:12,color:"#94a3b8"}}>{v.year} {v.make} {v.model}</div>
+          <div style={{fontSize:11,color:"#64748b"}}>{v.owner}</div>
+        </div>
+        <div style={{...S.badge,background:st.color+"22",color:st.color,borderColor:st.color,marginLeft:8,flexShrink:0}}>
+          {st.icon} {st.label}
+        </div>
+      </div>
+      {live&&<div style={S.liveChip}>🔴 LIVE · {fmtDur(live.start,null)}</div>}
+      {v.estimatedDone&&v.stage!=="ready"&&<div style={{fontSize:10,color:"#475569",marginTop:4}}>Due {v.estimatedDone}</div>}
+    </div>
+  );
+}
+
+function StatCard({label,value,color}){
+  return(
+    <div style={{background:"#1e293b",borderRadius:10,padding:"12px 14px",border:"1px solid "+color+"33"}}>
+      <div style={{fontSize:28,fontWeight:800,color}}>{value}</div>
+      <div style={{fontSize:11,color:"#64748b"}}>{label}</div>
+    </div>
+  );
+}
+
+// ─── Mount ────────────────────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById("app"));
+root.render(<App/>);
+</script>
+
+<script>
+// ─── PWA Install prompt ───────────────────────────────────────────────────────
+let deferredPrompt = null;
+const banner   = document.getElementById("install-banner");
+const installBtn = document.getElementById("ib-install-btn");
+const dismissBtn = document.getElementById("ib-dismiss-btn");
+
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  // Show after 3 seconds so app loads first
+  setTimeout(() => { if(deferredPrompt) banner.classList.add("show"); }, 3000);
+});
+
+installBtn && installBtn.addEventListener("click", async () => {
+  if(!deferredPrompt) return;
+  banner.classList.remove("show");
+  deferredPrompt.prompt();
+  const {outcome} = await deferredPrompt.userChoice;
+  deferredPrompt = null;
+});
+
+dismissBtn && dismissBtn.addEventListener("click", () => {
+  banner.classList.remove("show");
+});
+
+window.addEventListener("appinstalled", () => {
+  banner.classList.remove("show");
+  deferredPrompt = null;
+});
+
+// ─── Offline detection ────────────────────────────────────────────────────────
+const offlineBadge = document.getElementById("offline-badge");
+function updateOnline(){
+  if(!navigator.onLine) offlineBadge.classList.add("show");
+  else offlineBadge.classList.remove("show");
+}
+window.addEventListener("online",  updateOnline);
+window.addEventListener("offline", updateOnline);
+updateOnline();
+
+// ─── Service Worker (inline, for offline caching) ─────────────────────────────
+if("serviceWorker" in navigator){
+  const swCode = `
+    const CACHE = "paneltrack-v2";
+    const URLS = [self.location.href];
+    self.addEventListener("install", e => {
+      e.waitUntil(caches.open(CACHE).then(c => c.addAll(URLS)).then(()=>self.skipWaiting()));
+    });
+    self.addEventListener("activate", e => {
+      e.waitUntil(clients.claim());
+    });
+    self.addEventListener("fetch", e => {
+      e.respondWith(
+        caches.match(e.request).then(r => r || fetch(e.request).then(res => {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+          return res;
+        }).catch(() => caches.match(e.request)))
+      );
+    });
+  `;
+  const swBlob = new Blob([swCode], {type:"text/javascript"});
+  const swURL  = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swURL).catch(()=>{});
+}
+</script>
+</body>
+</html>
